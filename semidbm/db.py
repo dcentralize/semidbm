@@ -31,7 +31,7 @@ class _SemiDBM(object):
 
     """
     def __init__(self, dbdir, renamer, data_loader=None,
-                 verify_checksums=False):
+                 verify_checksums=False, readonly=False):
         self._renamer = renamer
         self._data_loader = data_loader
         self._dbdir = dbdir
@@ -41,6 +41,7 @@ class _SemiDBM(object):
         self._data_fd = None
         self._verify_checksums = verify_checksums
         self._current_offset = 0
+        self._readonly = readonly
         self._load_db()
 
     def _create_db_dir(self):
@@ -50,7 +51,10 @@ class _SemiDBM(object):
     def _load_db(self):
         self._create_db_dir()
         self._index = self._load_index(self._data_filename)
-        self._data_fd = os.open(self._data_filename, compat.DATA_OPEN_FLAGS)
+        flags = compat.DATA_OPEN_FLAGS
+        if self._readonly:
+            flags = compat.DATA_RO_FLAGS
+        self._data_fd = os.open(self._data_filename, flags)
         self._current_offset = os.lseek(self._data_fd, 0, os.SEEK_END)
 
     def _load_index(self, filename):
@@ -235,6 +239,9 @@ class _SemiDBM(object):
 
 
 class _SemiDBMReadOnly(_SemiDBM):
+    def __init__(self, *args, **kwargs):
+        super(_SemiDBMReadOnly, self).__init__(*args, readonly=True, **kwargs)
+
     def __delitem__(self, key):
         self._method_not_allowed('delitem')
 
