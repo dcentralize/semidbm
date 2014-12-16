@@ -51,11 +51,12 @@ class _SemiDBM(object):
     def _load_db(self):
         self._create_db_dir()
         self._index = self._load_index(self._data_filename)
-        flags = compat.DATA_OPEN_FLAGS
+        flags = 'a+b'
         if self._readonly:
-            flags = compat.DATA_RO_FLAGS
-        self._data_fd = os.open(self._data_filename, flags)
-        self._current_offset = os.lseek(self._data_fd, 0, os.SEEK_END)
+            flags = 'rb'
+        self._data_fd = _open(self._data_filename, flags)
+        self._data_fd.seek(0, os.SEEK_END)
+        self._current_offset = self._data_fd.tell()
 
     def _load_index(self, filename):
         # This method is only used upon instantiation to populate
@@ -99,12 +100,13 @@ class _SemiDBM(object):
         if isinstance(key, str_type):
             key = key.encode('utf-8')
         offset, size = self._index[key]
-        lseek(self._data_fd, offset, seek_set)
+        self._data_fd.seek(offset)
+
         if not self._verify_checksums:
-            return read(self._data_fd, size)
+            return self._data_fd.read(size)
         else:
             # Checksum is at the end of the value.
-            data = read(self._data_fd, size + 4)
+            data = self._data_fd.read(size + 4)
             return self._verify_checksum_data(key, data)
 
     def _verify_checksum_data(self, key, data):
@@ -138,7 +140,7 @@ class _SemiDBM(object):
         checksum = pack('!I', crc32(keyval) & 0xffffffff)
         blob = keyval_size + keyval + checksum
 
-        write(self._data_fd, blob)
+        self._data_fd.write(blob)
         # Update the in memory index.
         self._index[key] = (self._current_offset + 8 + key_size,
                             val_size)
@@ -156,7 +158,8 @@ class _SemiDBM(object):
         crc = pack('!I', crc32(key) & 0xffffffff)
         blob = key_size + key + crc
 
-        write(self._data_fd, blob)
+        self._data_fd.write(blob)
+
         del self._index[key]
         self._current_offset += len(blob)
 
@@ -189,7 +192,7 @@ class _SemiDBM(object):
         if compact:
             self.compact()
         self.sync()
-        os.close(self._data_fd)
+        self._data_fd.close()
 
     def sync(self):
         """Sync the db to disk.
@@ -204,7 +207,7 @@ class _SemiDBM(object):
         """
         # The files are opened unbuffered so we don't technically
         # need to flush the file objects.
-        os.fsync(self._data_fd)
+        self._data_fd.flush()
 
     def compact(self):
         """Compact the db to reduce space.
@@ -231,7 +234,7 @@ class _SemiDBM(object):
             new_db[key] = self[key]
         new_db.sync()
         new_db.close()
-        os.close(self._data_fd)
+        self._data_fd.close()
         self._renamer(new_db._data_filename, self._data_filename)
         os.rmdir(new_db._dbdir)
         # The index is already compacted so we don't need to compact it.
@@ -258,7 +261,7 @@ class _SemiDBMReadOnly(_SemiDBM):
         raise DBMError("Can't %s: db opened in read only mode." % method_name)
 
     def close(self, compact=False):
-        os.close(self._data_fd)
+        self._data_fd.close()
 
 
 class _SemiDBMReadWrite(_SemiDBM):
